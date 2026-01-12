@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Plantilla CloudFormation para crear una VPC, una subred y una EC2
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Description: "CIDR de la VPC (por ejemplo 192.168.0.0/20)"
+    Default: "192.168.0.0/20"
+
+  VpcName:
+    Type: String
+    Description: "Nombre de la VPC"
+    Default: "VPC-mck"
+
+  SubnetName:
+    Type: String
+    Description: "Nombre de la Subred"
+    Default: "subred-vpc-mck"
+
+  SubnetCidr:
+    Type: String
+    Description: "CIDR de la Subred"
+    Default: "192.168.1.0/24"
+
+  SubnetAz:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Zona de disponibilidad para la subred"
+
+  InstanceType:
+    Type: String
+    Description: "Tipo de instancia EC2"
+    Default: t3.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t3.small
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "KeyPair para acceso SSH"
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: "AMI de la EC2 (ej: Amazon Linux 2)"
+    Default: "ami-07ff62358b87c7116"
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref VpcName
+
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref SubnetCidr
+      AvailabilityZone: !Ref SubnetAz
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Ref SubnetName
+
+  Ec2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Acceso SSH
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-sg"
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      SubnetId: !Ref Subnet
+      SecurityGroupIds:
+        - !Ref Ec2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-ec2"
+
+Outputs:
+  VpcId:
+    Description: "ID de la VPC creada"
+    Value: !Ref VPC
+
+  SubnetId:
+    Description: "ID de la Subred creada"
+    Value: !Ref Subnet
+
+  InstanceId:
+    Description: "ID de la instancia EC2"
+    Value: !Ref EC2Instance
