@@ -1,0 +1,130 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Part 2 - Add a MySQL database with CloudFormation (Improved Security)
+
+Parameters:
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+
+  EnvironmentType:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+
+  AmiID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+
+  KeyPairName:
+    Type: String
+
+  DBInstanceIdentifier:
+    Type: String
+    Default: webapp-db
+
+  DBUsername:
+    NoEcho: true
+    Type: String
+    Default: mysqladmin
+    MinLength: 1
+    MaxLength: 16
+
+  DBPassword:
+    NoEcho: true
+    Type: String
+    MinLength: 8
+    MaxLength: 41
+
+  DBName:
+    Type: String
+    Default: webapp
+    MinLength: 1
+    MaxLength: 64
+
+Mappings:
+  EnvironmentToInstanceType:
+    dev:
+      InstanceType: t2.nano
+    test:
+      InstanceType: t2.micro
+    prod:
+      InstanceType: t2.small
+
+Resources:
+  WebAppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub webapp-sg-${EnvironmentType}
+      GroupDescription: Allow HTTP, HTTPS and SSH
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  WebAppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      ImageId: !Ref AmiID
+      InstanceType: !FindInMap
+        - EnvironmentToInstanceType
+        - !Ref EnvironmentType
+        - InstanceType
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref WebAppSecurityGroup
+
+  WebAppEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref WebAppInstance
+
+  WebAppDatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow MySQL only from EC2 SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !GetAtt WebAppSecurityGroup.GroupId
+
+  WebAppDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      Engine: mysql
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !GetAtt WebAppDatabaseSecurityGroup.GroupId
+      Tags:
+        - Key: Name
+          Value: !Sub webapp-rds-${EnvironmentType}
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+
+Outputs:
+  WebsiteURL:
+    Value: !Sub http://${WebAppEIP}
+
+  WebServerPublicDNS:
+    Value: !GetAtt WebAppInstance.PublicDnsName
+
+  WebAppDatabaseEndpoint:
+    Value: !GetAtt WebAppDatabase.Endpoint.Address
